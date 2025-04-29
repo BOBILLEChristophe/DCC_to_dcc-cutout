@@ -13,7 +13,7 @@
 #endif
 
 #define PROJECT "DCC to DCC Railcom"
-#define VERSION "v 0.9 - 29/04/2025"
+#define VERSION "v 0.9.1 - 29/04/2025"
 #define AUTHOR "Christophe BOBILLE : christophe.bobille@gmail.com"
 
 #include <Arduino.h>
@@ -48,7 +48,7 @@ QueueHandle_t dccInQueue;
 QueueHandle_t dccOutQueue;
 QueueHandle_t durationQueue;
 DCC_PACKET dccOutPacketTimer = {0, 0};
-DCC_PACKET idlePacket = {28, 0xFF801FE};
+DCC_PACKET idlePacket = {28, 0xFF801FE}; // Packet idle =   0 11111111 0 00000000 0 11111111 1
 
 // États de sortie
 bool sens0 = HIGH;
@@ -64,7 +64,9 @@ uint8_t bitValIsr = 0;
 uint64_t dccOutPacketTimerData;
 uint8_t dccOutPacketTimerCount;
 
-
+/*-----------------------------------------------------------------------
+Fonction d'interruption déclenchée sur changement d'état de GPIO pinDCCin
+------------------------------------------------------------------------*/
 
 void IRAM_ATTR dccInterruptHandler()
 {
@@ -93,6 +95,9 @@ void IRAM_ATTR dccInterruptHandler()
     portYIELD_FROM_ISR();
 }
 
+/*-----------------------------------------------------------------------
+Tâche FreeRTOS pour analyser les impulsions DCC
+------------------------------------------------------------------------*/
 void dccParserTask(void *pvParameters)
 {
   const byte PREAMBLE = 1;
@@ -169,7 +174,7 @@ void dccParserTask(void *pvParameters)
               // Serial.println("fin de paquet");
               // Serial.println(dccPacket.data, BIN);
               // Serial.printf("long %d\n", dccPacket.count);
-              //  On a un paquet valide si count = 28, 37 bits
+              //  On a un paquet valide si count = 28, 37, 46, 55 bits
               dccPacket.count++;
               if (dccPacket.data != idlePacket.data)
               {
@@ -177,6 +182,8 @@ void dccParserTask(void *pvParameters)
                 {
                 case 28:
                 case 37:
+                case 46:
+                case 55:
                   xQueueSend(dccOutQueue, &dccPacket, portMAX_DELAY);
                   break;
                 }
