@@ -20,4 +20,6 @@ Matériel nécessaire
 - Pont en H pour amplifier le signal DCC
 - Entrée optocouplée pour isoler l'entrée DCC.
 
+- https://dcc-ex.com/_images/dcc_interface_1.png
+
 
