@@ -1,8 +1,8 @@
 # DCC to DCC Railcom Cutout (ESP32)
 
-Transformez automatiquement un signal DCC "brut" en un signal DCC compatible Railcom avec insertion de cutout.
+## Transformez automatiquement un signal DCC "brut" en un signal DCC compatible Railcom avec insertion de cutout.
 
-Présentation :
+## Présentation :
 
 Ce projet permet, à partir d’une centrale DCC standard qui n’en est pas équipée, de 
 -	Capturer proprement le signal DCC brut.
@@ -15,7 +15,7 @@ Pour les détails techniques, voir : https://www.nmra.org/sites/default/files/st
 
 Le projet est destiné à être embarqué sur un ESP32.
 
-Matériel nécessaire
+## Matériel nécessaire
 - 1 ESP32
 - Pont en H pour amplifier le signal DCC
 - Entrée optocouplée pour isoler l'entrée DCC.
