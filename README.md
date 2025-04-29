@@ -19,4 +19,5 @@ Matériel nécessaire
 - 1 ESP32
 - Pont en H pour amplifier le signal DCC
 - Entrée optocouplée pour isoler l'entrée DCC.
-![image](https://github.com/user-attachments/assets/b1e369d4-71bf-40fa-bfcd-a93893efa81b)
+
+
