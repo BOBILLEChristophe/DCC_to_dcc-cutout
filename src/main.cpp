@@ -13,7 +13,7 @@
 #endif
 
 #define PROJECT "DCC to DCC Railcom"
-#define VERSION "v 0.9.1 - 29/04/2025"
+#define VERSION "v 0.9.3 - 07/05/2025"
 #define AUTHOR "Christophe BOBILLE : christophe.bobille@gmail.com"
 
 #include <Arduino.h>
@@ -25,7 +25,7 @@
 #include <driver/gpio.h>
 
 // Broches ESP32
-const gpio_num_t pinDCCin = GPIO_NUM_13;
+const gpio_num_t pinDCCin = GPIO_NUM_4;
 const gpio_num_t pinIn0 = GPIO_NUM_27;
 const gpio_num_t pinIn1 = GPIO_NUM_33;
 const gpio_num_t pinEnable = GPIO_NUM_32;
@@ -46,7 +46,6 @@ struct DCC_PACKET
 // Objets globaux
 QueueHandle_t dccInQueue;
 QueueHandle_t dccOutQueue;
-QueueHandle_t durationQueue;
 DCC_PACKET dccOutPacketTimer = {0, 0};
 DCC_PACKET idlePacket = {28, 0xFF801FE}; // Packet idle =   0 11111111 0 00000000 0 11111111 1
 
@@ -78,7 +77,7 @@ void IRAM_ATTR dccInterruptHandler()
   lastTime = now;
 
   if (duration < minDuration)
-    return; 
+    return;
 
   constexpr uint32_t bit1Min = 100, bit1Max = 130;
   constexpr uint32_t bit0Min = 170, bit0Max = 220;
@@ -110,6 +109,13 @@ void dccParserTask(void *pvParameters)
   uint8_t preambleCount = 0;
   DCC_PACKET dccPacket = {0, 0};
 
+  uint8_t byte_1 = 0;
+  uint8_t byte_2 = 0;
+  uint8_t byte_3 = 0;
+  uint8_t byte_4 = 0;
+  uint8_t byte_5 = 0;
+  uint8_t crc = 0;
+
   uint64_t dccPacketData = 0;
   uint8_t dccPacketCount = 0;
 
@@ -122,12 +128,19 @@ void dccParserTask(void *pvParameters)
     dccPacket.count = 0;
     dccPacketData = 0;
     dccPacketCount = 0;
+    byte_1 = 0;
+    byte_2 = 0;
+    byte_3 = 0;
+    byte_4 = 0;
+    byte_5 = 0;
+    crc = 0;
   };
 
   while (true)
   {
     if (xQueueReceive(dccInQueue, &bitVal, portMAX_DELAY) == pdTRUE)
     {
+      //Serial.println(bitVal);
       if (bitVal < 2)
       {
         switch (state)
@@ -171,24 +184,44 @@ void dccParserTask(void *pvParameters)
           {
             if (bitVal == 1)
             { // Fin du paquet
-              // Serial.println("fin de paquet");
-              // Serial.println(dccPacket.data, BIN);
-              // Serial.printf("long %d\n", dccPacket.count);
+              Serial.println("fin de paquet");
+              Serial.println(dccPacket.data, BIN);
+              Serial.printf("long %d\n", dccPacket.count);
               //  On a un paquet valide si count = 28, 37, 46, 55 bits
-              dccPacket.count++;
+
               if (dccPacket.data != idlePacket.data)
               {
+                byte_1 = (idlePacket.data & 0x000000001FE) >> 1;
+                byte_2 = (idlePacket.data & 0x0000003FC00) >> 10;
+                byte_3 = (idlePacket.data & 0x00007F80000) >> 19;
+                byte_4 = (idlePacket.data & 0x00FF0000000) >> 28;
+                byte_5 = (idlePacket.data & 0x1FE000000000) >> 37;
+                bool send = false;
+                dccPacket.count++;
                 switch (dccPacket.count)
                 {
                 case 28:
-                case 37:
-                case 46:
-                case 55:
-                  xQueueSend(dccOutQueue, &dccPacket, portMAX_DELAY);
+                  crc = byte_1 ^ byte_2;
+                  if (byte_3 == crc)
+                    send = true;
                   break;
+                case 37:
+                  crc = (byte_1 ^ byte_2) ^ byte_3;
+                  if (byte_4 == crc)
+                    send = true;
+                  break;
+                case 46:
+                  crc = ((byte_1 ^ byte_2) ^ byte_3) ^ byte_4;
+                  if (byte_5 == crc)
+                    send = true;
+                  break;
+                  //   case 55:
+                  // }
                 }
-              }
-              resetFrame();
+                if (send)
+                  xQueueSend(dccOutQueue, &dccPacket, portMAX_DELAY);
+                resetFrame();
+              } // End if (dccPacket.data != idlePacket.data)
             }
             else // bitVal == 0
             {
@@ -197,9 +230,9 @@ void dccParserTask(void *pvParameters)
             }
           }
           break;
-        }
+        } // End COLLECTING_DATA
       }
-      else
+      else // if (bitVal < 2) = bit invalide
       {
         resetFrame();
         Serial.println("error bit = 2\n");
@@ -304,7 +337,7 @@ void dccOutTask(void *pvParameters)
     if (xQueueReceive(dccOutQueue, &tempPacket, pdMS_TO_TICKS(30)) == pdTRUE)
     {
       dccOutPacketTimer = tempPacket;
-      // Serial.println(dccOutPacketTimer.data, BIN);
+      Serial.println(dccOutPacketTimer.data, BIN);
     }
 
     else
@@ -338,7 +371,6 @@ void setup()
 
   dccInQueue = xQueueCreate(1024, sizeof(uint8_t));
   dccOutQueue = xQueueCreate(32, sizeof(DCC_PACKET));
-  //durationQueue = xQueueCreate(1024, sizeof(uint32_t));
 
   attachInterrupt(digitalPinToInterrupt(pinDCCin), dccInterruptHandler, FALLING); // ou RISING selon câblage
 
@@ -364,10 +396,9 @@ void setup()
   xTaskCreatePinnedToCore(dccParserTask, "DCC Parser", 4 * 1024, NULL, 2, NULL, 0);
   xTaskCreatePinnedToCore(dccOutTask, "DCC Out", 4 * 1024, NULL, 4, NULL, 0);
 
-  // Pour activer ou désactiver le debug, commenter ou décommenter la ligne ci-dessous
-  // Serial.end();
+  // Pour activer le debug, commenter la ligne ci-dessous
+  Serial.end();
 }
 
 void loop()
-{
-} // nothing to do
+{} // nothing to do
