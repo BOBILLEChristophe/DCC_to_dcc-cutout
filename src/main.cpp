@@ -371,5 +371,5 @@ void setup() {
   loop
 ------------------------------------------------------------------------*/
 
-void loop() {
-}  // nothing to do
+void loop()
+{}  // nothing to do
