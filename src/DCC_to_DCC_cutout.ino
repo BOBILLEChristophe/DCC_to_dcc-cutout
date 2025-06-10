@@ -9,7 +9,8 @@
     Il fonctionne sur un ESP32, utilise les interruptions pour détecter
     les alternances du signal DCC, et FreeRTOS pour répartir les tâches.
 
-  Avertissement : Ce code ne détecte pas les courts-circuits !
+    La détection des courts-circuits a été ajoutée dans cette version mais nécessite
+    une modification du hardware.
 
  */
 
@@ -18,7 +19,7 @@
 #endif
 
 #define PROJECT "DCC to DCC Railcom"
-#define VERSION "v 0.9.6 - 07/06/2025"
+#define VERSION "v 0.9.7 - 10/06/2025"
 #define AUTHOR "Christophe BOBILLE : christophe.bobille@gmail.com"
 
 #include <Arduino.h>
@@ -28,7 +29,7 @@ const gpio_num_t pinDCCin = GPIO_NUM_4;    // Entrée DCC (opto isolée via 6N13
 const gpio_num_t pinIn0 = GPIO_NUM_27;     // Sortie H-Bridge A
 const gpio_num_t pinIn1 = GPIO_NUM_33;     // Sortie H-Bridge B
 const gpio_num_t pinEnable = GPIO_NUM_32;  // Activation du pont en H
-
+const gpio_num_t pinCC = GPIO_NUM_5;       // Broche sur tensions ATtiny
 // Constantes
 constexpr uint8_t NB_PREAMBLE_HALF_BIT = 32;
 constexpr byte CUTOUT_EVT = 0;
@@ -77,8 +78,13 @@ void IRAM_ATTR dccInterruptHandler() {
   if (duration < minDuration)
     return;
 
+  // constexpr uint32_t bit1Min = 100, bit1Max = 130;
+  // constexpr uint32_t bit0Min = 170, bit0Max = 220;
+
   constexpr uint32_t bit1Min = 100, bit1Max = 130;
-  constexpr uint32_t bit0Min = 170, bit0Max = 220;
+  constexpr uint32_t bit0Min = 170, bit0Max = 250;
+
+
   uint8_t bitVal = 2;  // Une valeur entière supérieure à 1.
 
   if (duration >= bit1Min && duration <= bit1Max)
@@ -243,7 +249,7 @@ void IRAM_ATTR timerHandler() {
       }
       break;
 
-    case PREAMBLE_EVT:     // Création du préambule
+    case PREAMBLE_EVT:  // Création du préambule
       sens1 = sens0;
       sens0 = !sens0;
       gpio_set_level(pinIn0, sens1);
@@ -259,7 +265,7 @@ void IRAM_ATTR timerHandler() {
       }
       break;
 
-    case DATA_EVT: // Envoi des données
+    case DATA_EVT:  // Envoi des données
       bitValIsr = (dccOutPacketTimerData >> bitCountIsr) & 0x01;
       if (bitValIsr == 0) {
         if (firstHalfBit == true) {
@@ -313,6 +319,20 @@ void dccOutTask(void *pvParameters) {
 }
 
 /*-----------------------------------------------------------------------
+  dccStop // Coupure en cas de sur intensités sur la voie
+------------------------------------------------------------------------*/
+
+void dccStop(void *pvParameters) {
+  while (true) {
+    if (digitalRead(pinCC))
+      gpio_set_level(pinEnable, LOW);  // Désactivation du pont en H
+    else
+      gpio_set_level(pinEnable, HIGH);  // Activation du pont en H
+    vTaskDelay(1);
+  }
+}
+
+/*-----------------------------------------------------------------------
   setup
 ------------------------------------------------------------------------*/
 
@@ -331,6 +351,8 @@ void setup() {
   pinMode(pinIn1, OUTPUT);
   pinMode(pinEnable, OUTPUT);
   gpio_set_level(pinEnable, HIGH);  // Activation du pont en H
+
+  pinMode(pinCC, INPUT_PULLUP);
 
   // Création de la queue pour réception des bits
   dccInQueue = xQueueCreate(1024, sizeof(uint8_t));
@@ -362,6 +384,8 @@ void setup() {
   xTaskCreatePinnedToCore(dccParserTask, "DCC Parser", 4 * 1024, NULL, 2, NULL, 0);
   // Création de la tâche  pour l'envoi du nouveau signal DCC
   xTaskCreatePinnedToCore(dccOutTask, "DCC Out", 4 * 1024, NULL, 4, NULL, 0);
+  // Création de la tâche  pour coupure en cas de sur tension
+  xTaskCreatePinnedToCore(dccStop, "DCC stop", 1 * 1024, NULL, 6, NULL, 0);
 
   // Pour activer ou désactiver le debug, commenter ou décommenter la ligne ci-dessous
   // Serial.end();
